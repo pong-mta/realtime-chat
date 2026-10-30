@@ -8,6 +8,7 @@ use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Storage;
 
 class MessageSent implements ShouldBroadcastNow
 {
@@ -19,7 +20,11 @@ class MessageSent implements ShouldBroadcastNow
 
     public function broadcastOn(): array
     {
-        return [new PrivateChannel('conversation.'.$this->message->conversation_id)];
+        return [
+            new PrivateChannel(
+                'conversation.' . $this->message->conversation_id
+            ),
+        ];
     }
 
     public function broadcastAs(): string
@@ -29,12 +34,18 @@ class MessageSent implements ShouldBroadcastNow
 
     public function broadcastWith(): array
     {
+        $this->message->loadMissing('sender:id,name,email');
+
         return [
             'message' => [
                 'id' => $this->message->id,
                 'conversation_id' => $this->message->conversation_id,
                 'sender_id' => $this->message->sender_id,
                 'body' => $this->message->body,
+                'image_path' => $this->message->image_path,
+                'image_url' => $this->message->image_path
+                    ? Storage::disk('public')->url($this->message->image_path)
+                    : null,
                 'created_at' => $this->message->created_at?->toISOString(),
                 'sender' => [
                     'id' => $this->message->sender->id,

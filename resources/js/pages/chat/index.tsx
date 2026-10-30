@@ -111,10 +111,12 @@ export default function ChatIndex({
         }
 
         let mounted = true;
+        const channelName = `conversation.${activeId}`;
 
         setMessages([]);
         setError("");
 
+        // Load existing messages independently of the real-time connection.
         axios
             .get(`/chat/${activeId}/messages`)
             .then((response) => {
@@ -129,8 +131,6 @@ export default function ChatIndex({
             });
 
         // Echo is initialized by the side-effect import at the top of this file.
-        // If Pusher is not configured, keep HTTP messaging available without
-        // crashing the chat page when trying to subscribe to a private channel.
         if (!window.Echo) {
             console.error(
                 "Laravel Echo is unavailable. Check your Pusher configuration.",
@@ -145,11 +145,29 @@ export default function ChatIndex({
             };
         }
 
-        const channelName = `conversation.${activeId}`;
+        // Subscribe to the active conversation's private channel.
+        const channel = window.Echo.private(channelName);
 
-        window.Echo.private(channelName).listen(
-            ".message.sent",
-            (event: { message: Message }) => {
+        channel
+            .subscribed(() => {
+                console.log("Subscribed to private channel:", channelName);
+            })
+            .error((subscriptionError: unknown) => {
+                console.error(
+                    "Private channel subscription failed:",
+                    channelName,
+                    subscriptionError,
+                );
+
+                if (mounted) {
+                    setError(
+                        "Unable to join this private conversation. Please check your connection.",
+                    );
+                }
+            })
+            .listen(".message.sent", (event: { message: Message }) => {
+                console.log("Incoming chat message:", event.message);
+
                 if (!mounted) return;
 
                 setMessages((previous) => {
@@ -163,8 +181,7 @@ export default function ChatIndex({
 
                     return [...previous, event.message];
                 });
-            },
-        );
+            });
 
         return () => {
             mounted = false;
