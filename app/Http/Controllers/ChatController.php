@@ -45,7 +45,11 @@ class ChatController extends Controller
 
     public function start(Request $request, User $user): JsonResponse
     {
-        abort_if($request->user()->is($user), 422, 'You cannot start a conversation with yourself.');
+        abort_if(
+            $request->user()->is($user),
+            422,
+            'You cannot start a conversation with yourself.'
+        );
 
         $conversation = DB::transaction(function () use ($request, $user) {
             $currentId = (int) $request->user()->id;
@@ -93,12 +97,36 @@ class ChatController extends Controller
         $this->authorizeParticipant($request, $conversation);
 
         $validated = $request->validate([
-            'body' => ['required', 'string', 'max:5000'],
+            'body' => ['nullable', 'string', 'max:5000'],
+            'image' => [
+                'nullable',
+                'image',
+                'mimes:jpg,jpeg,png,webp',
+                'max:5120',
+            ],
         ]);
+
+        $body = trim($validated['body'] ?? '');
+
+        if ($body === '' && !$request->hasFile('image')) {
+            return response()->json([
+                'message' => 'Please enter a message or select an image.',
+            ], 422);
+        }
+
+        $imagePath = null;
+
+        if ($request->hasFile('image')) {
+            $imagePath = $request->file('image')->store(
+                'chat-images',
+                'public'
+            );
+        }
 
         $message = $conversation->messages()->create([
             'sender_id' => $request->user()->id,
-            'body' => trim($validated['body']),
+            'body' => $body,
+            'image_path' => $imagePath,
         ]);
 
         $message->load('sender:id,name,email');
@@ -110,6 +138,10 @@ class ChatController extends Controller
 
     private function authorizeParticipant(Request $request, Conversation $conversation): void
     {
-        abort_unless($conversation->hasParticipant((int) $request->user()->id), 403, 'You are not a participant in this conversation.');
+        abort_unless(
+            $conversation->hasParticipant((int) $request->user()->id),
+            403,
+            'You are not a participant in this conversation.'
+        );
     }
 }

@@ -14,6 +14,8 @@ type Message = {
     conversation_id: number;
     sender_id: number;
     body: string;
+    image_path: string | null;
+    image_url: string | null;
     created_at: string;
     sender: User;
 };
@@ -39,14 +41,20 @@ export default function ChatIndex({
     const [activeId, setActiveId] = useState<number | null>(
         initialConversations[0]?.id ?? null,
     );
+
     const [messages, setMessages] = useState<Message[]>([]);
     const [draft, setDraft] = useState("");
     const [search, setSearch] = useState("");
     const [busy, setBusy] = useState(false);
     const [error, setError] = useState("");
 
+    // Image upload state
+    const [selectedImage, setSelectedImage] = useState<File | null>(null);
+    const [imagePreview, setImagePreview] = useState<string | null>(null);
+
     const bottomRef = useRef<HTMLDivElement>(null);
     const messageContainerRef = useRef<HTMLDivElement>(null);
+    const imageInputRef = useRef<HTMLInputElement>(null);
 
     const activeConversation = conversations.find(
         (conversation) => conversation.id === activeId,
@@ -85,6 +93,15 @@ export default function ChatIndex({
             );
         });
     }, [conversations, currentUser.id, search]);
+
+    // Revoke temporary image preview URL when it changes or component unmounts.
+    useEffect(() => {
+        return () => {
+            if (imagePreview) {
+                URL.revokeObjectURL(imagePreview);
+            }
+        };
+    }, [imagePreview]);
 
     // Load messages and listen for real-time messages.
     useEffect(() => {
@@ -179,20 +196,62 @@ export default function ChatIndex({
         }
     }
 
+    function handleImageSelection(event: React.ChangeEvent<HTMLInputElement>) {
+        const file = event.target.files?.[0];
+
+        if (!file) return;
+
+        const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+
+        if (!allowedTypes.includes(file.type)) {
+            setError("Please select a JPG, PNG, or WebP image.");
+            event.target.value = "";
+            return;
+        }
+
+        if (file.size > 5 * 1024 * 1024) {
+            setError("Image must not exceed 5 MB.");
+            event.target.value = "";
+            return;
+        }
+
+        setError("");
+        setSelectedImage(file);
+        setImagePreview(URL.createObjectURL(file));
+    }
+
+    function removeSelectedImage() {
+        setSelectedImage(null);
+        setImagePreview(null);
+
+        if (imageInputRef.current) {
+            imageInputRef.current.value = "";
+        }
+    }
+
     async function sendMessage(event: FormEvent<HTMLFormElement>) {
         event.preventDefault();
 
-        if (!activeId || !draft.trim() || busy) return;
+        if (!activeId || (!draft.trim() && !selectedImage) || busy) {
+            return;
+        }
 
-        const messageBody = draft.trim();
+        const formData = new FormData();
+
+        formData.append("body", draft.trim());
+
+        if (selectedImage) {
+            formData.append("image", selectedImage);
+        }
 
         setBusy(true);
         setError("");
 
         try {
-            const response = await axios.post(`/chat/${activeId}/messages`, {
-                body: messageBody,
-            });
+            const response = await axios.post(
+                `/chat/${activeId}/messages`,
+                formData,
+            );
 
             const newMessage: Message = response.data.message;
 
@@ -205,6 +264,12 @@ export default function ChatIndex({
             });
 
             setDraft("");
+            setSelectedImage(null);
+            setImagePreview(null);
+
+            if (imageInputRef.current) {
+                imageInputRef.current.value = "";
+            }
 
             setConversations((previous) =>
                 previous.map((conversation) =>
@@ -217,8 +282,15 @@ export default function ChatIndex({
                 ),
             );
         } catch (err: any) {
+            const validationErrors = err.response?.data?.errors;
+
+            const firstValidationError = validationErrors
+                ? Object.values(validationErrors).flat()[0]
+                : null;
+
             setError(
-                err.response?.data?.message ??
+                (firstValidationError as string) ||
+                    err.response?.data?.message ||
                     "Unable to send your message. Please try again.",
             );
         } finally {
@@ -568,9 +640,35 @@ export default function ChatIndex({
                                                                     : "rounded-bl-md border border-slate-200 bg-white text-slate-700"
                                                             }`}
                                                         >
-                                                            <p className="whitespace-pre-wrap break-words">
-                                                                {message.body}
-                                                            </p>
+                                                            {/* Shared image */}
+                                                            {message.image_url && (
+                                                                <a
+                                                                    href={
+                                                                        message.image_url
+                                                                    }
+                                                                    target="_blank"
+                                                                    rel="noreferrer"
+                                                                    className="mb-2 block overflow-hidden rounded-xl"
+                                                                >
+                                                                    <img
+                                                                        src={
+                                                                            message.image_url
+                                                                        }
+                                                                        alt="Shared image"
+                                                                        loading="lazy"
+                                                                        className="max-h-[350px] max-w-full rounded-xl object-contain"
+                                                                    />
+                                                                </a>
+                                                            )}
+
+                                                            {/* Message text */}
+                                                            {message.body && (
+                                                                <p className="whitespace-pre-wrap break-words">
+                                                                    {
+                                                                        message.body
+                                                                    }
+                                                                </p>
+                                                            )}
                                                         </div>
 
                                                         <div className="mt-1.5 flex items-center gap-1.5 px-1">
@@ -598,9 +696,50 @@ export default function ChatIndex({
                                 {/* Error and composer - fixed */}
                                 <div className="shrink-0 border-t border-slate-200 bg-white px-4 py-4 sm:px-8">
                                     <div className="mx-auto w-full max-w-5xl">
+                                        {/* Error message */}
                                         {error && (
                                             <div className="mb-3 rounded-lg border border-red-100 bg-red-50 px-4 py-2 text-xs text-red-600">
                                                 {error}
+                                            </div>
+                                        )}
+
+                                        {/* Image preview */}
+                                        {imagePreview && (
+                                            <div className="mb-3 flex items-start gap-3">
+                                                <div className="relative">
+                                                    <img
+                                                        src={imagePreview}
+                                                        alt="Selected image preview"
+                                                        className="h-24 w-24 rounded-xl border border-slate-200 object-cover"
+                                                    />
+
+                                                    <button
+                                                        type="button"
+                                                        onClick={
+                                                            removeSelectedImage
+                                                        }
+                                                        className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-slate-900 text-sm text-white shadow-md transition hover:bg-red-600"
+                                                        title="Remove image"
+                                                    >
+                                                        ×
+                                                    </button>
+                                                </div>
+
+                                                <div className="min-w-0 pt-1">
+                                                    <p className="truncate text-xs font-semibold text-slate-700">
+                                                        {selectedImage?.name}
+                                                    </p>
+                                                    <p className="text-[11px] text-slate-400">
+                                                        {selectedImage
+                                                            ? (
+                                                                  selectedImage.size /
+                                                                  1024 /
+                                                                  1024
+                                                              ).toFixed(2) +
+                                                              " MB"
+                                                            : ""}
+                                                    </p>
+                                                </div>
                                             </div>
                                         )}
 
@@ -608,6 +747,29 @@ export default function ChatIndex({
                                             onSubmit={sendMessage}
                                             className="flex items-end gap-3"
                                         >
+                                            {/* Hidden image input */}
+                                            <input
+                                                ref={imageInputRef}
+                                                type="file"
+                                                accept="image/jpeg,image/png,image/webp"
+                                                className="hidden"
+                                                onChange={handleImageSelection}
+                                            />
+
+                                            {/* Attach image button */}
+                                            <button
+                                                type="button"
+                                                onClick={() =>
+                                                    imageInputRef.current?.click()
+                                                }
+                                                disabled={busy}
+                                                className="flex h-[52px] w-[52px] shrink-0 items-center justify-center rounded-2xl border border-slate-200 text-slate-500 transition hover:border-indigo-200 hover:bg-indigo-50 hover:text-indigo-600 disabled:cursor-not-allowed disabled:opacity-50"
+                                                title="Attach image"
+                                            >
+                                                <ImageIcon />
+                                            </button>
+
+                                            {/* Message input */}
                                             <div className="flex min-h-[52px] min-w-0 flex-1 items-center rounded-2xl border border-slate-200 bg-slate-50 px-4 transition focus-within:border-indigo-300 focus-within:bg-white focus-within:ring-4 focus-within:ring-indigo-50">
                                                 <textarea
                                                     value={draft}
@@ -625,7 +787,8 @@ export default function ChatIndex({
                                                             event.preventDefault();
 
                                                             if (
-                                                                draft.trim() &&
+                                                                (draft.trim() ||
+                                                                    selectedImage) &&
                                                                 !busy
                                                             ) {
                                                                 event.currentTarget.form?.requestSubmit();
@@ -639,16 +802,23 @@ export default function ChatIndex({
                                                 />
                                             </div>
 
+                                            {/* Send button */}
                                             <button
                                                 type="submit"
                                                 disabled={
-                                                    !draft.trim() ||
+                                                    (!draft.trim() &&
+                                                        !selectedImage) ||
                                                     busy ||
                                                     !activeId
                                                 }
                                                 className="flex h-[52px] shrink-0 items-center justify-center gap-2 rounded-2xl bg-indigo-600 px-5 text-sm font-semibold text-white shadow-lg shadow-indigo-200 transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                                             >
-                                                <SendIcon />
+                                                {busy ? (
+                                                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
+                                                ) : (
+                                                    <SendIcon />
+                                                )}
+
                                                 <span className="hidden sm:inline">
                                                     Send
                                                 </span>
@@ -657,7 +827,7 @@ export default function ChatIndex({
 
                                         <p className="mt-2 text-center text-[10px] text-slate-400">
                                             Press Enter to send · Shift + Enter
-                                            for a new line
+                                            for a new line · Images up to 5 MB
                                         </p>
                                     </div>
                                 </div>
@@ -803,6 +973,25 @@ function SendIcon() {
         >
             <path d="m22 2-7 20-4-9-9-4Z" />
             <path d="M22 2 11 13" />
+        </svg>
+    );
+}
+
+function ImageIcon() {
+    return (
+        <svg
+            width="21"
+            height="21"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+        >
+            <rect x="3" y="3" width="18" height="18" rx="3" />
+            <circle cx="8.5" cy="8.5" r="1.5" />
+            <path d="m21 15-5-5L5 21" />
         </svg>
     );
 }
