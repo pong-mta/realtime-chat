@@ -10,15 +10,27 @@ import { defineConfig, lazyPlugins, loadEnv } from "vite-plus";
 export default defineConfig(({ mode }) => {
     const env = loadEnv(mode, process.cwd(), "");
 
-    console.log("\n========================================");
-    console.log(
-        "PUSHER CONFIGURATION:",
-        env.VITE_PUSHER_APP_KEY ? "KEY FOUND" : "KEY MISSING",
-    );
-    console.log("PUSHER CLUSTER:", env.VITE_PUSHER_APP_CLUSTER || "ap1");
-    console.log("========================================\n");
+    const pusherKey = env.VITE_PUSHER_APP_KEY || env.PUSHER_APP_KEY || "";
+
+    const pusherCluster =
+        env.VITE_PUSHER_APP_CLUSTER || env.PUSHER_APP_CLUSTER || "ap1";
+
+    if (!pusherKey) {
+        throw new Error(
+            "Pusher key missing. Check your project root .env file.",
+        );
+    }
+
+    console.log("Pusher key found:", Boolean(pusherKey));
+    console.log("Pusher cluster:", pusherCluster);
 
     return {
+        define: {
+            "import.meta.env.VITE_PUSHER_APP_KEY": JSON.stringify(pusherKey),
+            "import.meta.env.VITE_PUSHER_APP_CLUSTER":
+                JSON.stringify(pusherCluster),
+        },
+
         plugins: lazyPlugins(() => [
             laravel({
                 input: ["resources/css/app.css", "resources/js/app.tsx"],

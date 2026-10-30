@@ -7,19 +7,14 @@ const key = import.meta.env.VITE_PUSHER_APP_KEY;
 const cluster = import.meta.env.VITE_PUSHER_APP_CLUSTER || "ap1";
 
 if (!key) {
-    console.error(
-        "Pusher initialization failed: VITE_PUSHER_APP_KEY is missing.",
-    );
-} else {
-    window.Echo = new Echo({
-        broadcaster: "pusher",
-        key,
-        cluster,
-        forceTLS: true,
-    });
-
-    console.log("Pusher initialized successfully:", {
-        keyLoaded: true,
-        cluster,
-    });
+    throw new Error("Pusher app key is missing.");
 }
+
+window.Echo = new Echo({
+    broadcaster: "pusher",
+    key,
+    cluster,
+    forceTLS: true,
+});
+
+console.log("Pusher initialized:", cluster);
