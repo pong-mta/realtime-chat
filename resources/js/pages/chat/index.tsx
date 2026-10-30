@@ -128,25 +128,47 @@ export default function ChatIndex({
                 }
             });
 
-        const channel = window.Echo.private(`conversation.${activeId}`);
+        // Echo is initialized by the side-effect import at the top of this file.
+        // If Pusher is not configured, keep HTTP messaging available without
+        // crashing the chat page when trying to subscribe to a private channel.
+        if (!window.Echo) {
+            console.error(
+                "Laravel Echo is unavailable. Check your Pusher configuration.",
+            );
 
-        channel.listen(".message.sent", (event: { message: Message }) => {
-            if (!mounted) return;
+            setError(
+                "Real-time connection unavailable. Messages can still be loaded, but live updates are disabled.",
+            );
 
-            setMessages((previous) => {
-                if (
-                    previous.some((message) => message.id === event.message.id)
-                ) {
-                    return previous;
-                }
+            return () => {
+                mounted = false;
+            };
+        }
 
-                return [...previous, event.message];
-            });
-        });
+        const channelName = `conversation.${activeId}`;
+
+        window.Echo.private(channelName).listen(
+            ".message.sent",
+            (event: { message: Message }) => {
+                if (!mounted) return;
+
+                setMessages((previous) => {
+                    if (
+                        previous.some(
+                            (message) => message.id === event.message.id,
+                        )
+                    ) {
+                        return previous;
+                    }
+
+                    return [...previous, event.message];
+                });
+            },
+        );
 
         return () => {
             mounted = false;
-            window.Echo.leave(`conversation.${activeId}`);
+            window.Echo.leave(channelName);
         };
     }, [activeId]);
 
